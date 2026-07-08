@@ -1,0 +1,19 @@
+{
+  "name": "material-providers",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Official material provider packages for paper-search-cli",
+  "scripts": {
+    "build": "node scripts/build-providers.mjs",
+    "check": "tsc --noEmit",
+    "verify": "node scripts/verify-registry.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "jszip": "^3.10.1",
+    "typescript": "^5.9.2"
+  }
+}
