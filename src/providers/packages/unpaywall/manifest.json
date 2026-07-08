@@ -1,0 +1,31 @@
+{
+  "id": "unpaywall",
+  "name": "Unpaywall OA Resolver",
+  "version": "1.0.0",
+  "kind": "artifact_resolver",
+  "entry": "provider.js",
+  "description": "Resolve DOIs to ordered open-access artifact locations via the Unpaywall REST API (metadata only; no byte download).",
+  "author": "Paper Search material-providers",
+  "minCliVersion": "0.1.0",
+  "capabilities": {
+    "inputs": ["identifier"],
+    "identifierSchemes": ["doi"],
+    "outputs": ["locations"],
+    "network": true
+  },
+  "configSchema": {
+    "email": {
+      "type": "string",
+      "required": true,
+      "env": ["UNPAYWALL_EMAIL"],
+      "label": "Contact email",
+      "description": "Email address required by Unpaywall polite-use policy (api.unpaywall.org)."
+    }
+  },
+  "permissions": {
+    "network": ["https://api.unpaywall.org/*"]
+  },
+  "rateLimit": {
+    "requestsPerMinute": 60
+  }
+}
