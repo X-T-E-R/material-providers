@@ -64,6 +64,7 @@ jobs:
     env:
       PROVIDER_RELEASE_TAG: material-providers-${{ github.sha }}
       MUTABLE_REGISTRY_TAG: material-registry-latest
+      GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Download verified publication assets
