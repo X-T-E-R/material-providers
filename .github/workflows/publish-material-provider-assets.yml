@@ -1,0 +1,223 @@
+name: Material Provider Release
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: material-provider-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify_release:
+    name: Verify material provider release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PROVIDER_REPO_URL: https://github.com/${{ github.repository }}
+      PROVIDER_RELEASE_TAG: material-providers-${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release assets
+        run: npm run verify:release
+
+      - name: Retain verified publication assets
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: material-provider-release-${{ github.sha }}
+          path: |
+            dist/*.zip
+            registry.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish_release:
+    name: Publish material provider release
+    needs: verify_release
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      PROVIDER_RELEASE_TAG: material-providers-${{ github.sha }}
+      MUTABLE_REGISTRY_TAG: material-registry-latest
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download verified publication assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: material-provider-release-${{ github.sha }}
+
+      - name: Require current main HEAD before immutable publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$current_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing immutable publication: $GITHUB_SHA is not current main HEAD $current_main_sha" >&2
+            exit 1
+          fi
+
+      - name: Publish and verify exact immutable assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist/*.zip)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No material provider archives were generated" >&2
+            exit 1
+          fi
+
+          expected_file="$(mktemp)"
+          existing_file="$(mktemp)"
+          published_file="$(mktemp)"
+          download_root="$(mktemp -d)"
+          trap 'rm -f "$expected_file" "$existing_file" "$published_file"; rm -rf "$download_root"' EXIT
+          {
+            printf '%s\n' registry.json
+            for archive in "${archives[@]}"; do
+              basename "$archive"
+            done
+          } | LC_ALL=C sort >"$expected_file"
+
+          if gh release view "$PROVIDER_RELEASE_TAG" >/dev/null 2>&1; then
+            release_target="$(
+              gh release view "$PROVIDER_RELEASE_TAG" \
+                --json targetCommitish --jq '.targetCommitish'
+            )"
+            if [[ "$release_target" != "$GITHUB_SHA" ]]; then
+              echo "Immutable release target $release_target does not match $GITHUB_SHA" >&2
+              exit 1
+            fi
+          else
+            gh release create "$PROVIDER_RELEASE_TAG" \
+              --title "Material Providers $GITHUB_SHA" \
+              --notes "Immutable material provider archives and registry built from commit $GITHUB_SHA." \
+              --target "$GITHUB_SHA" \
+              --latest=false
+          fi
+
+          gh release view "$PROVIDER_RELEASE_TAG" \
+            --json assets --jq '.assets[].name' | LC_ALL=C sort >"$existing_file"
+          unexpected_assets="$(comm -13 "$expected_file" "$existing_file")"
+          if [[ -n "$unexpected_assets" ]]; then
+            echo "Immutable release contains unexpected assets:" >&2
+            printf '%s\n' "$unexpected_assets" >&2
+            exit 1
+          fi
+
+          while IFS= read -r asset; do
+            [[ -n "$asset" ]] || continue
+            if [[ "$asset" == "registry.json" ]]; then
+              local_asset="registry.json"
+            else
+              local_asset="dist/$asset"
+            fi
+            if grep -Fxq -- "$asset" "$existing_file"; then
+              asset_dir="$download_root/existing-${asset%.zip}"
+              mkdir -p "$asset_dir"
+              gh release download "$PROVIDER_RELEASE_TAG" \
+                --pattern "$asset" --dir "$asset_dir"
+              if ! cmp -- "$local_asset" "$asset_dir/$asset"; then
+                echo "Immutable asset $asset differs from the verified build" >&2
+                exit 1
+              fi
+            else
+              gh release upload "$PROVIDER_RELEASE_TAG" "$local_asset"
+            fi
+          done <"$expected_file"
+
+          gh release view "$PROVIDER_RELEASE_TAG" \
+            --json assets --jq '.assets[].name' | LC_ALL=C sort >"$published_file"
+          diff -u "$expected_file" "$published_file"
+          while IFS= read -r asset; do
+            [[ -n "$asset" ]] || continue
+            if [[ "$asset" == "registry.json" ]]; then
+              local_asset="registry.json"
+            else
+              local_asset="dist/$asset"
+            fi
+            asset_dir="$download_root/verified-${asset%.zip}"
+            mkdir -p "$asset_dir"
+            gh release download "$PROVIDER_RELEASE_TAG" \
+              --pattern "$asset" --dir "$asset_dir"
+            cmp -- "$local_asset" "$asset_dir/$asset"
+          done <"$expected_file"
+
+      - name: Update registry-only mutable pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$current_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing mutable update: $GITHUB_SHA is not current main HEAD $current_main_sha" >&2
+            exit 1
+          fi
+
+          if gh release view "$MUTABLE_REGISTRY_TAG" >/dev/null 2>&1; then
+            gh release edit "$MUTABLE_REGISTRY_TAG" \
+              --title "Material Registry Latest" \
+              --notes "Mutable discovery pointer. Immutable releases contain the matching archives and registry." \
+              --prerelease
+          else
+            gh release create "$MUTABLE_REGISTRY_TAG" \
+              --title "Material Registry Latest" \
+              --notes "Mutable discovery pointer. Immutable releases contain the matching archives and registry." \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+
+          while IFS= read -r asset; do
+            [[ -n "$asset" ]] || continue
+            if [[ "$asset" != "registry.json" ]]; then
+              gh release delete-asset "$MUTABLE_REGISTRY_TAG" "$asset" --yes
+            fi
+          done < <(
+            gh release view "$MUTABLE_REGISTRY_TAG" --json assets --jq '.assets[].name'
+          )
+
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$current_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing mutable pointer update: $GITHUB_SHA is not current main HEAD $current_main_sha" >&2
+            exit 1
+          fi
+          gh release upload "$MUTABLE_REGISTRY_TAG" registry.json --clobber
+
+          pointer_dir="$(mktemp -d)"
+          trap 'rm -rf "$pointer_dir"' EXIT
+          gh release download "$MUTABLE_REGISTRY_TAG" \
+            --pattern registry.json --dir "$pointer_dir"
+          cmp -- registry.json "$pointer_dir/registry.json"
+          pointer_assets="$(
+            gh release view "$MUTABLE_REGISTRY_TAG" --json assets \
+              --jq '[.assets[].name] | sort | join("\n")'
+          )"
+          if [[ "$pointer_assets" != "registry.json" ]]; then
+            echo "Mutable material registry release is not registry-only:" >&2
+            printf '%s\n' "$pointer_assets" >&2
+            exit 1
+          fi

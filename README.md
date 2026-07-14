@@ -9,20 +9,25 @@ Material providers implement acquisition and extraction adapters (`artifact_reso
 ## What This Repository Is For
 
 - Distribute installable material provider packages for `paper-search-cli`
-- Publish a dedicated `registry.json` with `kind`, `downloadUrl`, `sha256`, and `minCliVersion` entries (see ADR in the parent MetaSystem: material-provider distribution channel)
+- Publish a dedicated `registry.json` with `kind`, `downloadUrl`, `sha256`, and
+  `minCliVersion` entries for material-provider discovery
 - Build release zip archives via CI without committing `dist/` or `registry.json` to git
 
-Default registry URL (after release):
+Default registry URL (after the repository's first release):
 
-`https://github.com/X-T-E-R/material-providers`
+`https://github.com/X-T-E-R/material-providers/releases/download/material-registry-latest/registry.json`
 
 Use with:
 
 ```bash
-node dist/cli.js providers plan-registry <path-or-url-to-registry.json> --kind material --json
+paper-search registries add official-material https://github.com/X-T-E-R/material-providers/releases/download/material-registry-latest/registry.json --kind material --apply
+paper-search registries refresh official-material
+paper-search providers available --json
+paper-search providers install unpaywall --from official-material --apply --json
 ```
 
-Remote registry URLs require a paper-search-cli build that supports HTTP material registries; until then, point the CLI at a **local** `registry.json` produced by `npm run build`, or install zips with `providers install-zip`.
+Registry refresh validates and snapshots metadata; it does not install provider
+code. Installation remains an explicit, plan-first CLI operation.
 
 ---
 
@@ -43,13 +48,30 @@ Every package contains at least:
 
 1. Change provider source under `src/providers/packages/`
 2. `npm run build` generates `dist/<id>/` folders, `dist/<id>.zip` archives, and root `registry.json`
-3. `npm run verify` checks manifest/registry version alignment and zip checksums
-4. GitHub Actions (when configured) uploads `registry.json` and `dist/*.zip` to the mutable release tag `material-registry-latest`
+3. `npm run verify:release` checks types, manifest/registry/archive alignment,
+   deterministic ZIP bytes across time zones, and a retained-old-registry
+   publish simulation
+4. Read-only pull-request CI verifies the same release gate; `main` is the
+   stable publication channel
+5. GitHub Actions publishes the exact `dist/*.zip` set plus the corresponding
+   `registry.json` to the unique immutable tag `material-providers-<commit>`,
+   then byte-verifies every asset
+6. Only after that immutable release is complete, the workflow replaces
+   `registry.json` on the mutable discovery tag `material-registry-latest`;
+   that release remains registry-only
+
+Run `npm run release:plan` for an offline dry-run summary. It does not contact
+GitHub or mutate releases. Registry entries keep the public
+`id/version/kind/downloadUrl/sha256/minCliVersion` shape, and every
+`downloadUrl` points to an immutable archive release.
 
 Build artifacts and `registry.json` are gitignored; only source and scripts are versioned.
+Manual publication runs are restricted to `main`. The npm package remains
+`private`; providers are distributed as GitHub release assets and are not
+published to npm.
 
 ---
 
 ## License
 
-MIT
+[MIT License](./LICENSE)

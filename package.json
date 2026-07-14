@@ -4,12 +4,29 @@
   "type": "module",
   "version": "0.1.0",
   "description": "Official material provider packages for paper-search-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/X-T-E-R/material-providers.git"
+  },
+  "homepage": "https://github.com/X-T-E-R/material-providers#readme",
+  "bugs": {
+    "url": "https://github.com/X-T-E-R/material-providers/issues"
+  },
   "scripts": {
     "build": "node scripts/build-providers.mjs",
     "check": "tsc --noEmit",
-    "verify": "node scripts/verify-registry.mjs"
+    "verify": "node scripts/verify-registry.mjs",
+    "verify:reproducible": "node scripts/verify-reproducible.mjs",
+    "verify:retained-registry": "node scripts/verify-retained-registry.mjs",
+    "release:plan": "node scripts/release-plan.mjs",
+    "verify:release": "npm run check && npm run build && npm run verify && npm run verify:reproducible && npm run verify:retained-registry && npm run release:plan"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
+  "packageManager": "npm@11.6.2",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
