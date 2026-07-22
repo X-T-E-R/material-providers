@@ -4,6 +4,7 @@
 
 const PROVIDER_ID = "unpaywall";
 const API_BASE = "https://api.unpaywall.org/v2";
+const PLACEHOLDER_CONTACT_EMAIL = "xxx@example.com";
 
 interface MaterialRuntimeContext {
   http: {
@@ -49,14 +50,16 @@ export class MaterialResolverIdentifierNotFoundError extends Error {
   }
 }
 
-function requireEmail(runtimeContext: MaterialRuntimeContext): string {
-  const value = runtimeContext.config.get("email", "");
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(
-      "Missing Unpaywall contact email; set config email or UNPAYWALL_EMAIL environment variable.",
-    );
-  }
-  return value.trim();
+function resolveEmail(runtimeContext: MaterialRuntimeContext): {
+  value: string;
+  source: "configured" | "placeholder";
+} {
+  const value = runtimeContext.config.get("email", PLACEHOLDER_CONTACT_EMAIL);
+  const email = typeof value === "string" && value.trim() ? value.trim() : PLACEHOLDER_CONTACT_EMAIL;
+  return {
+    value: email,
+    source: email.toLowerCase() === PLACEHOLDER_CONTACT_EMAIL ? "placeholder" : "configured",
+  };
 }
 
 function encodeDoiPath(doi: string): string {
@@ -135,7 +138,7 @@ function orderedCandidates(work: UnpaywallWork): ReturnType<typeof mapLocation>[
 function createProvider(runtimeContext: MaterialRuntimeContext) {
   return {
     inspect() {
-      const email = runtimeContext.config.get("email", "");
+      const email = resolveEmail(runtimeContext);
       return {
         contractVersion: "paper-search.material-provider.unpaywall.v1",
         id: PROVIDER_ID,
@@ -145,8 +148,15 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
         inputs: ["identifier"],
         identifierSchemes: ["doi"],
         outputs: ["locations"],
-        requiredConfig: ["email"],
-        configuredEmail: typeof email === "string" && email.trim() ? "<set>" : "<missing>",
+        requiredConfig: [],
+        contactEmailSource: email.source,
+        ...(email.source === "placeholder"
+          ? {
+              warnings: [
+                "Unpaywall is using placeholder email xxx@example.com; set platform.unpaywall.email or UNPAYWALL_EMAIL.",
+              ],
+            }
+          : {}),
         methods: ["inspect", "resolve"],
         liveNetworkDuringInspect: false,
       };
@@ -163,8 +173,8 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
       }
 
       const doi = identifier.value.trim();
-      const email = requireEmail(runtimeContext);
-      const url = `${API_BASE}/${encodeDoiPath(doi)}?email=${encodeURIComponent(email)}`;
+      const email = resolveEmail(runtimeContext);
+      const url = `${API_BASE}/${encodeDoiPath(doi)}?email=${encodeURIComponent(email.value)}`;
 
       let response;
       try {
@@ -179,7 +189,7 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
       }
       if (response.status === 422) {
         throw new Error(
-          `Unpaywall rejected the request (HTTP 422): use a real contact email in config or UNPAYWALL_EMAIL`,
+          `Unpaywall rejected the contact email (HTTP 422): set email in config or UNPAYWALL_EMAIL to replace the placeholder`,
         );
       }
       if (response.status < 200 || response.status >= 300) {

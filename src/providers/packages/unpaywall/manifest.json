@@ -16,10 +16,11 @@
   "configSchema": {
     "email": {
       "type": "string",
-      "required": true,
+      "required": false,
+      "default": "xxx@example.com",
       "env": ["UNPAYWALL_EMAIL"],
       "label": "Contact email",
-      "description": "Email address required by Unpaywall polite-use policy (api.unpaywall.org)."
+      "description": "Unpaywall contact email. The placeholder keeps requests available but the CLI will recommend replacing it."
     }
   },
   "permissions": {
