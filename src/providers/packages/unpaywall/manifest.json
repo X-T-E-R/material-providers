@@ -18,9 +18,10 @@
       "type": "string",
       "required": false,
       "default": "xxx@example.com",
+      "placeholder": "xxx@example.com",
       "env": ["UNPAYWALL_EMAIL"],
       "label": "Contact email",
-      "description": "Unpaywall contact email. The placeholder keeps requests available but the CLI will recommend replacing it."
+      "description": "Unpaywall contact email. Replace the visible example before making requests."
     }
   },
   "permissions": {

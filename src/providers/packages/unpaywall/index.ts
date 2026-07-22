@@ -50,6 +50,17 @@ export class MaterialResolverIdentifierNotFoundError extends Error {
   }
 }
 
+export class MaterialProviderConfigurationRequiredError extends Error {
+  readonly code = "action_required";
+  readonly providerId = PROVIDER_ID;
+  readonly missingConfigKeys = ["email"];
+
+  constructor() {
+    super("Unpaywall requires a real contact email before network access");
+    this.name = "MaterialProviderConfigurationRequiredError";
+  }
+}
+
 function resolveEmail(runtimeContext: MaterialRuntimeContext): {
   value: string;
   source: "configured" | "placeholder";
@@ -148,15 +159,8 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
         inputs: ["identifier"],
         identifierSchemes: ["doi"],
         outputs: ["locations"],
-        requiredConfig: [],
+        requiredConfig: email.source === "placeholder" ? ["email"] : [],
         contactEmailSource: email.source,
-        ...(email.source === "placeholder"
-          ? {
-              warnings: [
-                "Unpaywall is using placeholder email xxx@example.com; set platform.unpaywall.email or UNPAYWALL_EMAIL.",
-              ],
-            }
-          : {}),
         methods: ["inspect", "resolve"],
         liveNetworkDuringInspect: false,
       };
@@ -174,6 +178,9 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
 
       const doi = identifier.value.trim();
       const email = resolveEmail(runtimeContext);
+      if (email.source === "placeholder") {
+        throw new MaterialProviderConfigurationRequiredError();
+      }
       const url = `${API_BASE}/${encodeDoiPath(doi)}?email=${encodeURIComponent(email.value)}`;
 
       let response;
@@ -186,11 +193,6 @@ function createProvider(runtimeContext: MaterialRuntimeContext) {
 
       if (response.status === 404) {
         throw new MaterialResolverIdentifierNotFoundError(doi);
-      }
-      if (response.status === 422) {
-        throw new Error(
-          `Unpaywall rejected the contact email (HTTP 422): set email in config or UNPAYWALL_EMAIL to replace the placeholder`,
-        );
       }
       if (response.status < 200 || response.status >= 300) {
         throw new Error(`Unpaywall returned HTTP ${response.status}: ${response.statusText}`);
