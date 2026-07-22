@@ -16,10 +16,12 @@
   "configSchema": {
     "email": {
       "type": "string",
-      "required": true,
+      "required": false,
+      "default": "xxx@example.com",
+      "placeholder": "xxx@example.com",
       "env": ["UNPAYWALL_EMAIL"],
       "label": "Contact email",
-      "description": "Email address required by Unpaywall polite-use policy (api.unpaywall.org)."
+      "description": "Unpaywall contact email. Replace the visible example before making requests."
     }
   },
   "permissions": {

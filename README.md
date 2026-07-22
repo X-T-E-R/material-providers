@@ -1,76 +1,131 @@
-# Material Providers
+# Material Providers for Paper Search CLI X
 
-Official external **material** provider repository for [paper-search-cli](https://github.com/X-T-E-R/paper-search-cli).
+This is the independent material-provider repository for
+[`paper-search-cli`](https://github.com/X-T-E-R/paper-search-cli). It publishes
+installable packages for resolving artifact locations, acquiring files, and
+extracting material such as PDFs. Search-source packages are maintained
+separately in
+[`resource-search-providers`](https://github.com/X-T-E-R/resource-search-providers).
 
-Material providers implement acquisition and extraction adapters (`artifact_resolver`, `artifact_downloader`, `extractor`, and related kinds). They are installed separately from [resource-search-providers](https://github.com/X-T-E-R/resource-search-providers), which only publishes **search** sources for the Zotero plugin.
+Paper Search CLI X owns orchestration, provider installation, records, and local
+workspace storage. Networked PDF acquisition and parsing belong to installed
+material providers; the CLI does not offer a direct-download path that bypasses
+the selected provider. A provider can access only the services and local
+resources declared by its own manifest and supported by the host runtime.
 
----
+## Available providers
 
-## What This Repository Is For
+| Provider ID | Kind | What it does | Required configuration |
+| --- | --- | --- | --- |
+| `unpaywall` | `artifact_resolver` | Resolves a DOI to ordered open-access location metadata through the Unpaywall API. It does not download file bytes. | `UNPAYWALL_EMAIL` |
+| `mineru-extractor` | `extractor` | Sends URL-based extraction jobs to MinerU and returns Markdown, JSON, assets, or result-zip metadata. Its local-file upload flow is exposed as a host-mediated contract rather than a standalone live upload. | `MINERU_TOKEN` or `MINERU_API_TOKEN` |
 
-- Distribute installable material provider packages for `paper-search-cli`
-- Publish a dedicated `registry.json` with `kind`, `downloadUrl`, `sha256`, and
-  `minCliVersion` entries for material-provider discovery
-- Build release zip archives via CI without committing `dist/` or `registry.json` to git
+This registry does not currently publish an `artifact_downloader`. Resolving a
+DOI with `unpaywall` therefore identifies candidate locations but does not, by
+itself, acquire the PDF. File acquisition requires an installed downloader
+provider that accepts the candidate and is permitted to access its source.
 
-Default registry URL (after the repository's first release):
+Provider IDs are machine-facing identifiers. Use them exactly as shown in the
+registry, commands, configuration, and automation.
 
-`https://github.com/X-T-E-R/material-providers/releases/download/material-registry-latest/registry.json`
+## Add the registry and install providers
 
-Use with:
+The discovery registry is published at:
+
+```text
+https://github.com/X-T-E-R/material-providers/releases/download/material-registry-latest/registry.json
+```
+
+Add and refresh it with Paper Search CLI X:
 
 ```bash
 paper-search registries add official-material https://github.com/X-T-E-R/material-providers/releases/download/material-registry-latest/registry.json --kind material --apply
 paper-search registries refresh official-material
 paper-search providers available --json
-paper-search providers install unpaywall --from official-material --apply --json
 ```
 
-Registry refresh validates and snapshots metadata; it does not install provider
-code. Installation remains an explicit, plan-first CLI operation.
+Install a provider explicitly from the material registry:
 
----
+```bash
+paper-search providers install unpaywall --from official-material --apply --json
+paper-search providers install mineru-extractor --from official-material --apply --json
+```
 
-## Package Layout
+Refreshing a registry validates and snapshots its metadata; it does not install
+provider code. Provider installation is also plan-first unless `--apply` is
+present.
 
-Each provider lives under:
+Set credentials in the environment before running the corresponding provider:
 
-`src/providers/packages/<id>/`
+```bash
+export UNPAYWALL_EMAIL="you@example.org"
+export MINERU_TOKEN="<token-issued-by-mineru>"
+```
 
-Every package contains at least:
+Use the equivalent environment-setting syntax for your shell. Do not commit
+provider credentials to this repository or to project configuration.
 
-- `manifest.json` — `MaterialProviderManifest` contract (`kind`, `capabilities`, `permissions`, optional `configSchema`, `rateLimit`)
-- `index.ts` or `provider.js` — bundled to `provider.js` in release artifacts
+## Source and authorization boundaries
 
----
+Each provider declares its network, read, write, and credential requirements in
+`manifest.json`. Review that manifest before installation and enable only the
+providers and sources you intend to use. Registry checks and archive digests
+verify package identity and installation integrity; they do not decide whether
+you are entitled to retrieve or process a particular document.
 
-## Release Model
+You remain responsible for choosing sources and for following the applicable
+provider terms, licences, institutional access conditions, copyright rules, and
+local law. Provider metadata such as an open-access location or licence hint is
+input to that decision, not a legal determination or a guarantee that every
+linked file may be downloaded or reused.
 
-1. Change provider source under `src/providers/packages/`
-2. `npm run build` generates `dist/<id>/` folders, `dist/<id>.zip` archives, and root `registry.json`
-3. `npm run verify:release` checks types, manifest/registry/archive alignment,
-   deterministic ZIP bytes across time zones, and a retained-old-registry
-   publish simulation
-4. Read-only pull-request CI verifies the same release gate; `main` is the
-   stable publication channel
-5. GitHub Actions publishes the exact `dist/*.zip` set plus the corresponding
-   `registry.json` to the unique immutable tag `material-providers-<commit>`,
-   then byte-verifies every asset
-6. Only after that immutable release is complete, the workflow replaces
-   `registry.json` on the mutable discovery tag `material-registry-latest`;
-   that release remains registry-only
+## Package contract
 
-Run `npm run release:plan` for an offline dry-run summary. It does not contact
-GitHub or mutate releases. Registry entries keep the public
-`id/version/kind/downloadUrl/sha256/minCliVersion` shape, and every
-`downloadUrl` points to an immutable archive release.
+Provider source packages live under:
 
-Build artifacts and `registry.json` are gitignored; only source and scripts are versioned.
-Manual publication runs are restricted to `main`. The npm package remains
-`private`; providers are distributed as GitHub release assets and are not
-published to npm.
+```text
+src/providers/packages/<id>/
+```
 
----
+Each package contains at least:
+
+- `manifest.json` — the material-provider contract, including `kind`,
+  `capabilities`, `permissions`, optional `configSchema`, and optional
+  `rateLimit`
+- `index.ts` or `provider.js` — bundled as `provider.js` in the release archive
+
+Supported material-provider kinds include `artifact_resolver`,
+`artifact_downloader`, `extractor`, `converter`, and `enricher`. Resolver
+providers return candidate metadata rather than bytes; downloader providers
+perform acquisition; extractor providers turn a URL or acquired artifact into
+derived outputs.
+
+## Build and release
+
+This repository is private as an npm package. Providers are distributed as
+GitHub release assets rather than published to npm.
+
+1. Update a package under `src/providers/packages/`.
+2. Run `npm run build` to generate `dist/<id>/`, `dist/<id>.zip`, and the root
+   `registry.json`.
+3. Run `npm run verify:release` to check types, manifests, registries, archives,
+   reproducible ZIP bytes, retained-registry publication, and the release plan.
+4. Pull-request CI runs the same release gate. Publication from `main` uploads
+   the exact archives and registry to an immutable
+   `material-providers-<commit>` release.
+5. After the immutable release is verified, the workflow updates the
+   registry-only `material-registry-latest` discovery release.
+
+For an offline summary without contacting GitHub or changing a release, run:
+
+```bash
+npm run release:plan
+```
+
+Generated `dist/` content and `registry.json` are not source-controlled. Public
+registry entries retain the
+`id/version/kind/downloadUrl/sha256/minCliVersion` shape, and each `downloadUrl`
+targets an immutable archive release.
 
 ## License
 

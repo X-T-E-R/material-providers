@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Official material provider packages for paper-search-cli",
+  "description": "Independent material provider packages for Paper Search CLI X",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/X-T-E-R/material-providers.git"
